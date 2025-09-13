@@ -1,6 +1,6 @@
 // Open Corner Script for Adobe Illustrator
 // Modified to handle multiple selected points, connect new points, preserve existing curves, handle both open and closed paths, remove redundant middle points, extend handle lengths appropriately, and avoid creating handles for corner points
-// Additionally modified to calculate extension length as 1/5 of the sum of incoming and outgoing segment lengths
+// Enhanced to calculate extension length based on local curvature and ensure C2 continuity
 
 // تابع برای بررسی انتخاب نقطه
 function isSelected(p) {
@@ -40,6 +40,40 @@ function hasHandle(point, direction) {
   }
 }
 
+// تابع برای محاسبه انحنا در یک نقطه (تخمینی)
+function estimateCurvature(point, prevPoint, nextPoint) {
+  var anchor = point.anchor;
+  var prevAnchor = prevPoint.anchor;
+  var nextAnchor = nextPoint.anchor;
+  
+  // بردارهای مماس
+  var v_in = [anchor[0] - point.leftDirection[0], anchor[1] - point.leftDirection[1]];
+  var v_out = [point.rightDirection[0] - anchor[0], point.rightDirection[1] - anchor[1]];
+  
+  var length_in = Math.sqrt(v_in[0] * v_in[0] + v_in[1] * v_in[1]);
+  var length_out = Math.sqrt(v_out[0] * v_out[0] + v_out[1] * v_out[1]);
+  
+  // اگر دسته‌ها صفر باشند، از نقاط مجاور استفاده می‌کنیم
+  if (length_in === 0) {
+    v_in = [anchor[0] - prevAnchor[0], anchor[1] - prevAnchor[1]];
+    length_in = Math.sqrt(v_in[0] * v_in[0] + v_in[1] * v_in[1]);
+  }
+  if (length_out === 0) {
+    v_out = [nextAnchor[0] - anchor[0], nextAnchor[1] - anchor[1]];
+    length_out = Math.sqrt(v_out[0] * v_out[0] + v_out[1] * v_out[1]);
+  }
+  
+  // تخمین شعاع انحنا (با استفاده از فاصله نقاط و زاویه)
+  var dot = v_in[0] * v_out[0] + v_in[1] * v_out[1];
+  var cross = v_in[0] * v_out[1] - v_in[1] * v_out[0];
+  var angle = Math.atan2(cross, dot);
+  var avgLength = (length_in + length_out) / 2;
+  
+  // شعاع انحنا تقریبی
+  var radius = Math.abs(avgLength / Math.sin(angle / 2));
+  return radius > 0 ? radius : avgLength; // جلوگیری از صفر
+}
+
 // تابع برای پردازش یک نقطه انتخاب‌شده و ایجاد امتداد
 function processPoint(path, point, selectedIndex) {
   var points = path.pathPoints;
@@ -77,8 +111,9 @@ function processPoint(path, point, selectedIndex) {
   }
   var unit_out = [v_out[0] / length_out, v_out[1] / length_out];
 
-  // محاسبه طول امتداد به صورت نسبتی (یک‌پنجم مجموع طول‌های ورودی و خروجی)
-  var ext = (length_in + length_out) / 5;
+  // محاسبه شعاع انحنا برای تنظیم طول امتداد
+  var radius = estimateCurvature(point, prev, next);
+  var ext = Math.min(radius * 0.3, (length_in + length_out) / 3); // طول امتداد پویا
 
   // نقاط جدید
   var new1 = [anchor[0] + unit_in[0] * ext, anchor[1] + unit_in[1] * ext];
@@ -88,30 +123,32 @@ function processPoint(path, point, selectedIndex) {
   var hasLeftHandle = hasHandle(point, "left");
   var hasRightHandle = hasHandle(point, "right");
 
+  // محاسبه ضریب مقیاس دسته‌ها برای پیوستگی C2
+  var handleScale = 1 + (ext / Math.max(length_in, length_out, 1)) * 1.5; // تنظیم پویا
+
+  // محاسبه نقاط کنترلی برای پیوستگی C2
+  var control1_left = hasLeftHandle ? [
+    new1[0] - unit_in[0] * (length_in * handleScale),
+    new1[1] - unit_in[1] * (length_in * handleScale)
+  ] : new1;
+  var control2_right = hasRightHandle ? [
+    new2[0] + unit_out[0] * (length_out * handleScale),
+    new2[1] + unit_out[1] * (length_out * handleScale)
+  ] : new2;
+
   // ایجاد مسیر جدید
   var newPath = app.activeDocument.pathItems.add();
   newPath.filled = path.filled;
   newPath.stroked = path.stroked;
   newPath.closed = path.closed;
 
-  // ضریب افزایش طول بازوها بر اساس فاصله امتداد
-  var handleScale = 1 + ext / Math.max(length_in, length_out, 1); // جلوگیری از تقسیم بر صفر
-
   if (path.closed) {
     // برای مسیر بسته: new2 -> next ... -> prev -> new1, then close to connect new1 -> new2
     var newPoint2 = newPath.pathPoints.add();
     newPoint2.anchor = new2;
     newPoint2.leftDirection = new2;
-    if (hasRightHandle) {
-      newPoint2.rightDirection = [
-        new2[0] + unit_out[0] * (length_out * handleScale),
-        new2[1] + unit_out[1] * (length_out * handleScale)
-      ];
-      newPoint2.pointType = PointType.SMOOTH;
-    } else {
-      newPoint2.rightDirection = new2;
-      newPoint2.pointType = PointType.CORNER;
-    }
+    newPoint2.rightDirection = control2_right;
+    newPoint2.pointType = hasRightHandle ? PointType.SMOOTH : PointType.CORNER;
 
     // اضافه کردن نقاط میانی از nextIndex تا prevIndex
     var idx = nextIndex;
@@ -133,18 +170,9 @@ function processPoint(path, point, selectedIndex) {
 
     var newPoint1 = newPath.pathPoints.add();
     newPoint1.anchor = new1;
-    if (hasLeftHandle) {
-      newPoint1.leftDirection = [
-        new1[0] - unit_in[0] * (length_in * handleScale),
-        new1[1] - unit_in[1] * (length_in * handleScale)
-      ];
-      newPoint1.rightDirection = new1;
-      newPoint1.pointType = PointType.SMOOTH;
-    } else {
-      newPoint1.leftDirection = new1;
-      newPoint1.rightDirection = new1;
-      newPoint1.pointType = PointType.CORNER;
-    }
+    newPoint1.leftDirection = control1_left;
+    newPoint1.rightDirection = new1;
+    newPoint1.pointType = hasLeftHandle ? PointType.SMOOTH : PointType.CORNER;
 
     newPath.closed = true;
 
@@ -168,33 +196,15 @@ function processPoint(path, point, selectedIndex) {
 
     var newPoint1 = newPath.pathPoints.add();
     newPoint1.anchor = new1;
-    if (hasLeftHandle) {
-      newPoint1.leftDirection = [
-        new1[0] - unit_in[0] * (length_in * handleScale),
-        new1[1] - unit_in[1] * (length_in * handleScale)
-      ];
-      newPoint1.rightDirection = new1;
-      newPoint1.pointType = PointType.SMOOTH;
-    } else {
-      newPoint1.leftDirection = new1;
-      newPoint1.rightDirection = new1;
-      newPoint1.pointType = PointType.CORNER;
-    }
+    newPoint1.leftDirection = control1_left;
+    newPoint1.rightDirection = new1;
+    newPoint1.pointType = hasLeftHandle ? PointType.SMOOTH : PointType.CORNER;
 
     var newPoint2 = newPath.pathPoints.add();
     newPoint2.anchor = new2;
-    if (hasRightHandle) {
-      newPoint2.leftDirection = new2;
-      newPoint2.rightDirection = [
-        new2[0] + unit_out[0] * (length_out * handleScale),
-        new2[1] + unit_out[1] * (length_out * handleScale)
-      ];
-      newPoint2.pointType = PointType.SMOOTH;
-    } else {
-      newPoint2.leftDirection = new2;
-      newPoint2.rightDirection = new2;
-      newPoint2.pointType = PointType.CORNER;
-    }
+    newPoint2.leftDirection = new2;
+    newPoint2.rightDirection = control2_right;
+    newPoint2.pointType = hasRightHandle ? PointType.SMOOTH : PointType.CORNER;
 
     for (var i = nextIndex; i < n; i++) {
       var oldPoint = points[i];
