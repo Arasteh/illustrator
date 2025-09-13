@@ -1,6 +1,7 @@
 // Open Corner Script for Adobe Illustrator
 // Modified to handle multiple selected points, connect new points, preserve existing curves, handle both open and closed paths, remove redundant middle points, extend handle lengths appropriately, and avoid creating handles for corner points
-// Enhanced to calculate extension length based on local curvature and ensure C2 continuity
+// Enhanced to calculate extension length based on local curvature and adjust handle angles dynamically based on extension length with reversed rotation direction for smoother curves
+// Further modified to skip rotation for points without handles (corner points)
 
 // تابع برای بررسی انتخاب نقطه
 function isSelected(p) {
@@ -38,6 +39,16 @@ function hasHandle(point, direction) {
   } else {
     return point.rightDirection[0] !== point.anchor[0] || point.rightDirection[1] !== point.anchor[1];
   }
+}
+
+// تابع برای چرخش یک بردار
+function rotateVector(v, angle) {
+  var cosA = Math.cos(angle);
+  var sinA = Math.sin(angle);
+  return [
+    v[0] * cosA - v[1] * sinA,
+    v[0] * sinA + v[1] * cosA
+  ];
 }
 
 // تابع برای محاسبه انحنا در یک نقطه (تخمینی)
@@ -126,14 +137,22 @@ function processPoint(path, point, selectedIndex) {
   // محاسبه ضریب مقیاس دسته‌ها برای پیوستگی C2
   var handleScale = 1 + (ext / Math.max(length_in, length_out, 1)) * 1.5; // تنظیم پویا
 
-  // محاسبه نقاط کنترلی برای پیوستگی C2
+  // محاسبه زاویه چرخش برای دسته‌ها بر اساس طول امتداد (جهت معکوس)
+  var rotationAngle = Math.min(ext / radius, 0.3) * Math.PI / 6; // حداکثر 30 درجه چرخش
+  // برای نقاط بدون بازو، چرخش صفر است
+  var rotationAngleIn = hasLeftHandle ? rotationAngle : 0;
+  var rotationAngleOut = hasRightHandle ? -rotationAngle : 0;
+  var rotated_unit_in = rotateVector(unit_in, rotationAngleIn); // چرخش در جهت مثبت برای new1 (یا بدون چرخش)
+  var rotated_unit_out = rotateVector(unit_out, rotationAngleOut); // چرخش در جهت منفی برای new2 (یا بدون چرخش)
+
+  // محاسبه نقاط کنترلی با زاویه‌های چرخیده
   var control1_left = hasLeftHandle ? [
-    new1[0] - unit_in[0] * (length_in * handleScale),
-    new1[1] - unit_in[1] * (length_in * handleScale)
+    new1[0] - rotated_unit_in[0] * (length_in * handleScale),
+    new1[1] - rotated_unit_in[1] * (length_in * handleScale)
   ] : new1;
   var control2_right = hasRightHandle ? [
-    new2[0] + unit_out[0] * (length_out * handleScale),
-    new2[1] + unit_out[1] * (length_out * handleScale)
+    new2[0] + rotated_unit_out[0] * (length_out * handleScale),
+    new2[1] + rotated_unit_out[1] * (length_out * handleScale)
   ] : new2;
 
   // ایجاد مسیر جدید
