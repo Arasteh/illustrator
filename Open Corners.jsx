@@ -1,6 +1,7 @@
 // Open Corner Script for Adobe Illustrator
 // Modified to handle multiple selected points, connect new points, preserve existing curves, handle both open and closed paths, remove redundant middle points, extend handle lengths appropriately, and avoid creating handles for corner points
 // Additionally modified to calculate extension length as 1/5 of the sum of incoming and outgoing segment lengths
+// Further modified to connect new1 and new2 with a single Bezier curve matching tangents at both ends for more accurate Bezier continuation
 
 // تابع برای بررسی انتخاب نقطه
 function isSelected(p) {
@@ -84,6 +85,10 @@ function processPoint(path, point, selectedIndex) {
   var new1 = [anchor[0] + unit_in[0] * ext, anchor[1] + unit_in[1] * ext];
   var new2 = [anchor[0] - unit_out[0] * ext, anchor[1] - unit_out[1] * ext];
 
+  // محاسبه فاصله بین new1 و new2 برای طول هندل‌های اتصال
+  var dist = Math.sqrt(Math.pow(new1[0] - new2[0], 2) + Math.pow(new1[1] - new2[1], 2));
+  var connectHandleLength = dist / 3;
+
   // بررسی وجود دسته در مسیرهای ورودی و خروجی
   var hasLeftHandle = hasHandle(point, "left");
   var hasRightHandle = hasHandle(point, "right");
@@ -101,7 +106,7 @@ function processPoint(path, point, selectedIndex) {
     // برای مسیر بسته: new2 -> next ... -> prev -> new1, then close to connect new1 -> new2
     var newPoint2 = newPath.pathPoints.add();
     newPoint2.anchor = new2;
-    newPoint2.leftDirection = new2;
+    newPoint2.leftDirection = [new2[0] - unit_out[0] * connectHandleLength, new2[1] - unit_out[1] * connectHandleLength];
     if (hasRightHandle) {
       newPoint2.rightDirection = [
         new2[0] + unit_out[0] * (length_out * handleScale),
@@ -138,11 +143,17 @@ function processPoint(path, point, selectedIndex) {
         new1[0] - unit_in[0] * (length_in * handleScale),
         new1[1] - unit_in[1] * (length_in * handleScale)
       ];
-      newPoint1.rightDirection = new1;
+      newPoint1.rightDirection = [
+        new1[0] + unit_in[0] * connectHandleLength,
+        new1[1] + unit_in[1] * connectHandleLength
+      ];
       newPoint1.pointType = PointType.SMOOTH;
     } else {
       newPoint1.leftDirection = new1;
-      newPoint1.rightDirection = new1;
+      newPoint1.rightDirection = [
+        new1[0] + unit_in[0] * connectHandleLength,
+        new1[1] + unit_in[1] * connectHandleLength
+      ];
       newPoint1.pointType = PointType.CORNER;
     }
 
@@ -173,25 +184,29 @@ function processPoint(path, point, selectedIndex) {
         new1[0] - unit_in[0] * (length_in * handleScale),
         new1[1] - unit_in[1] * (length_in * handleScale)
       ];
-      newPoint1.rightDirection = new1;
       newPoint1.pointType = PointType.SMOOTH;
     } else {
       newPoint1.leftDirection = new1;
-      newPoint1.rightDirection = new1;
       newPoint1.pointType = PointType.CORNER;
     }
+    newPoint1.rightDirection = [
+      new1[0] + unit_in[0] * connectHandleLength,
+      new1[1] + unit_in[1] * connectHandleLength
+    ];
 
     var newPoint2 = newPath.pathPoints.add();
     newPoint2.anchor = new2;
+    newPoint2.leftDirection = [
+      new2[0] - unit_out[0] * connectHandleLength,
+      new2[1] - unit_out[1] * connectHandleLength
+    ];
     if (hasRightHandle) {
-      newPoint2.leftDirection = new2;
       newPoint2.rightDirection = [
         new2[0] + unit_out[0] * (length_out * handleScale),
         new2[1] + unit_out[1] * (length_out * handleScale)
       ];
       newPoint2.pointType = PointType.SMOOTH;
     } else {
-      newPoint2.leftDirection = new2;
       newPoint2.rightDirection = new2;
       newPoint2.pointType = PointType.CORNER;
     }
