@@ -1,7 +1,7 @@
 // Open Corner Script for Adobe Illustrator
 // Modified to handle multiple selected points, connect new points, preserve existing curves, handle both open and closed paths, remove redundant middle points, extend handle lengths appropriately, and avoid creating handles for corner points
-// Enhanced to calculate extension length based on local curvature and adjust handle angles dynamically based on extension length with reversed rotation direction for smoother curves
-// Further modified to skip rotation for points without handles (corner points)
+// Enhanced to adjust handle angles dynamically with reversed rotation direction and skip rotation for points without handles
+// Reverted extension length to original formula: (length_in + length_out) / 5
 
 // تابع برای بررسی انتخاب نقطه
 function isSelected(p) {
@@ -122,9 +122,8 @@ function processPoint(path, point, selectedIndex) {
   }
   var unit_out = [v_out[0] / length_out, v_out[1] / length_out];
 
-  // محاسبه شعاع انحنا برای تنظیم طول امتداد
-  var radius = estimateCurvature(point, prev, next);
-  var ext = Math.min(radius * 0.3, (length_in + length_out) / 3); // طول امتداد پویا
+  // محاسبه طول امتداد با فرمول اولیه
+  var ext = (length_in + length_out) / 5; // بازگشت به فرمول اولیه
 
   // نقاط جدید
   var new1 = [anchor[0] + unit_in[0] * ext, anchor[1] + unit_in[1] * ext];
@@ -138,6 +137,7 @@ function processPoint(path, point, selectedIndex) {
   var handleScale = 1 + (ext / Math.max(length_in, length_out, 1)) * 1.5; // تنظیم پویا
 
   // محاسبه زاویه چرخش برای دسته‌ها بر اساس طول امتداد (جهت معکوس)
+  var radius = estimateCurvature(point, prev, next); // برای محاسبه rotationAngle
   var rotationAngle = Math.min(ext / radius, 0.3) * Math.PI / 6; // حداکثر 30 درجه چرخش
   // برای نقاط بدون بازو، چرخش صفر است
   var rotationAngleIn = hasLeftHandle ? rotationAngle : 0;
