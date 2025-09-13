@@ -1,5 +1,6 @@
 // Open Corner Script for Adobe Illustrator
 // Modified to handle multiple selected points, connect new points, preserve existing curves, handle both open and closed paths, remove redundant middle points, extend handle lengths appropriately, and avoid creating handles for corner points
+// Additionally modified to calculate extension length as 1/5 of the sum of incoming and outgoing segment lengths
 
 // تابع برای بررسی انتخاب نقطه
 function isSelected(p) {
@@ -40,7 +41,7 @@ function hasHandle(point, direction) {
 }
 
 // تابع برای پردازش یک نقطه انتخاب‌شده و ایجاد امتداد
-function processPoint(path, point, selectedIndex, ext) {
+function processPoint(path, point, selectedIndex) {
   var points = path.pathPoints;
   var n = points.length;
   var prevIndex = (path.closed && selectedIndex === 0) ? n - 1 : selectedIndex - 1;
@@ -75,6 +76,9 @@ function processPoint(path, point, selectedIndex, ext) {
     throw new Error("طول بردار خروجی صفر است.");
   }
   var unit_out = [v_out[0] / length_out, v_out[1] / length_out];
+
+  // محاسبه طول امتداد به صورت نسبتی (یک‌پنجم مجموع طول‌های ورودی و خروجی)
+  var ext = (length_in + length_out) / 5;
 
   // نقاط جدید
   var new1 = [anchor[0] + unit_in[0] * ext, anchor[1] + unit_in[1] * ext];
@@ -227,13 +231,6 @@ function main() {
     return;
   }
 
-  // دریافت فاصله برش یک‌بار برای همه نقاط
-  var ext = parseFloat(prompt("فاصله برش (واحد):", "10"));
-  if (isNaN(ext) || ext <= 0) {
-    alert("فاصله نامعتبر. مقدار پیش‌فرض 10 استفاده می‌شود.");
-    ext = 10;
-  }
-
   for (var s = paths.length - 1; s >= 0; s--) {
     var path = paths[s];
     var pathPoints = path.pathPoints;
@@ -263,7 +260,7 @@ function main() {
     // اگر فقط یک نقطه انتخاب شده، مسیر را مستقیماً پردازش می‌کنیم
     if (selectedPoints.length === 1) {
       try {
-        var newPath = processPoint(path, selectedPoints[0].point, selectedPoints[0].index, ext);
+        var newPath = processPoint(path, selectedPoints[0].point, selectedPoints[0].index);
         path.remove();
         newPath.selected = true;
       } catch (e) {
@@ -295,7 +292,7 @@ function main() {
 
         try {
           // پردازش نقطه انتخاب‌شده و ایجاد امتداد
-          var tempNewPath = processPoint(path, sortedPoints[i].point, selectedIndex, ext);
+          var tempNewPath = processPoint(path, sortedPoints[i].point, selectedIndex);
           newPaths.push(tempNewPath);
         } catch (e) {
           alert("خطا در پردازش نقطه در شاخص " + selectedIndex + ": " + e);
